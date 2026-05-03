@@ -1,39 +1,68 @@
 const http = require("http");
 const socketIo = require("socket.io");
 
-// เก็บข้อมูลผู้เล่น
-let players = {};
+let players = {}; // ประกาศไว้บนสุด
 
-// 1. สร้าง Server และหน้า Dashboard สำหรับดูรายชื่อ
 const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     
-    // สร้างรายการ HTML ของผู้เล่น
     let rows = Object.values(players).map(p => `
         <tr style="border-bottom: 1px solid #eee;">
             <td style="padding: 12px;">🟢 Online</td>
             <td style="padding: 12px; font-weight: bold;">${p.name}</td>
-            <td style="padding: 12px; font-family: monospace; color: #666;">${p.id}</td>
             <td style="padding: 12px;">${p.hp}%</td>
         </tr>
     `).join("");
 
     const html = `
-        <!DOCTYPE html>
         <html>
-        <head>
-            <title>MAGI | SERVER STATUS</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: white; margin: 0; padding: 20px; }
-                .container { max-width: 800px; margin: auto; background: #1e293b; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-                h1 { color: #f43f5e; text-align: center; letter-spacing: 2px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #334155; border-radius: 10px; overflow: hidden; }
-                th { background: #475569; padding: 15px; text-align: left; }
-                .stat-card { display: flex; justify-content: space-between; margin-bottom: 20px; background: #0f172a; padding: 15px; border-radius: 10px; border: 1px solid #334155; }
-                .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-right: 5px; }
-            </style>
-        </head>
+        <body style="font-family: sans-serif; background: #0f172a; color: white; padding: 20px;">
+            <div style="max-width: 600px; margin: auto; background: #1e293b; padding: 20px; border-radius: 15px;">
+                <h1 style="text-align:center; color:#f43f5e;">🪄 MAGI DASHBOARD</h1>
+                <p>Mages Online: ${Object.keys(players).length}</p>
+                <table style="width:100%; text-align:left;">
+                    <thead><tr><th>Status</th><th>Name</th><th>HP</th></tr></thead>
+                    <tbody>${rows || '<tr><td colspan="3">No one online</td></tr>'}</tbody>
+                </table>
+            </div>
+            <script>setTimeout(() => location.reload(), 5000);</script>
+        </body>
+        </html>
+    `;
+    res.end(html);
+});
+
+const io = socketIo(server, { cors: { origin: "*" } });
+
+io.on("connection", (socket) => {
+    socket.on("join-game", (data) => {
+        players[socket.id] = {
+            id: socket.id,
+            name: data.name || "Mage",
+            pos: data.pos || { x: 0, y: 15, z: 0 },
+            hp: 100
+        };
+        socket.emit("current-players", players);
+        socket.broadcast.emit("player-joined", players[socket.id]);
+    });
+
+    socket.on("move", (data) => {
+        if (players[socket.id]) {
+            players[socket.id].pos = data.pos;
+            socket.broadcast.emit("player-moved", { id: socket.id, ...data });
+        }
+    });
+
+    socket.on("disconnect", () => {
+        delete players[socket.id];
+        io.emit("player-left", socket.id);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log("🚀 MAGI Server is Live!");
+});
         <body>
             <div class="container">
                 <h1>🪄 MAGI ONLINE DASHBOARD</h1>
