@@ -1,39 +1,121 @@
-const io = require("socket.io")(process.env.PORT || 3000, {
-    cors: {
-        origin: "*", // อนุญาตให้ Netlify ของคุณเชื่อมต่อเข้ามาได้
-        methods: ["GET", "POST"]
-    }
-});
+const http = require("http");
+const socketIo = require("socket.io");
 
-// เก็บข้อมูลผู้เล่นทั้งหมดในรูปแบบ { socketId: { ข้อมูลผู้เล่น } }
+// เก็บข้อมูลผู้เล่น
 let players = {};
 
-console.log("🪄 MAGI Server is starting...");
+// 1. สร้าง Server และหน้า Dashboard สำหรับดูรายชื่อ
+const server = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    
+    // สร้างรายการ HTML ของผู้เล่น
+    let rows = Object.values(players).map(p => `
+        <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 12px;">🟢 Online</td>
+            <td style="padding: 12px; font-weight: bold;">${p.name}</td>
+            <td style="padding: 12px; font-family: monospace; color: #666;">${p.id}</td>
+            <td style="padding: 12px;">${p.hp}%</td>
+        </tr>
+    `).join("");
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>MAGI | SERVER STATUS</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: white; margin: 0; padding: 20px; }
+                .container { max-width: 800px; margin: auto; background: #1e293b; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+                h1 { color: #f43f5e; text-align: center; letter-spacing: 2px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #334155; border-radius: 10px; overflow: hidden; }
+                th { background: #475569; padding: 15px; text-align: left; }
+                .stat-card { display: flex; justify-content: space-between; margin-bottom: 20px; background: #0f172a; padding: 15px; border-radius: 10px; border: 1px solid #334155; }
+                .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-right: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🪄 MAGI ONLINE DASHBOARD</h1>
+                <div class="stat-card">
+                    <span>สถานะเซิร์ฟเวอร์: <b>ACTIVE</b></span>
+                    <span>จอมเวทย์ออนไลน์: <b style="color: #f43f5e;">${Object.keys(players).length}</b></span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>สถานะ</th>
+                            <th>ชื่อผู้เล่น</th>
+                            <th>Socket ID</th>
+                            <th>พลังชีวิต</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="4" style="padding: 20px; text-align: center; color: #94a3b8;">ยังไม่มีผู้เล่นออนไลน์ในขณะนี้</td></tr>'}
+                    </tbody>
+                </table>
+                <p style="text-align: center; font-size: 12px; color: #64748b; margin-top: 20px;">หน้าจอนี้จะรีเฟรชตัวเองอัตโนมัติทุก 5 วินาที</p>
+            </div>
+            <script>setTimeout(() => location.reload(), 5000);</script>
+        </body>
+        </html>
+    `;
+    res.end(html);
+});
+
+// 2. ตั้งค่า Socket.io
+const io = socketIo(server, {
+    cors: { origin: "*" }
+});
 
 io.on("connection", (socket) => {
-    console.log(`✨ จอมเวทย์เข้าสู่เซิร์ฟเวอร์: ${socket.id}`);
+    console.log("New Connection:", socket.id);
 
-    // 1. เมื่อผู้เล่นกดเข้าเกมจากหน้า Lobby
+    // เมื่อผู้เล่นเข้าเกม
     socket.on("join-game", (data) => {
-        // บันทึกข้อมูลผู้เล่นลงในหน่วยความจำของ Server
         players[socket.id] = {
             id: socket.id,
-            name: data.name || "Unknown Mage",
+            name: data.name || "Unknown",
             pos: data.pos || { x: 0, y: 15, z: 0 },
             rotY: data.rotY || 0,
             anim: "idle",
             hp: 100
         };
-
-        // ส่งข้อมูลผู้เล่นคนอื่นที่มีอยู่แล้วกลับไปให้ "ผู้เล่นใหม่"
         socket.emit("current-players", players);
-
-        // บอก "คนอื่นๆ" ในเซิร์ฟเวอร์ว่ามีคนใหม่เข้ามาแล้ว
         socket.broadcast.emit("player-joined", players[socket.id]);
-        
-        console.log(`📝 ${players[socket.id].name} ได้เริ่มการเดินทางแล้ว`);
     });
 
+    // รับส่งข้อมูลตำแหน่ง
+    socket.on("move", (data) => {
+        if (players[socket.id]) {
+            players[socket.id].pos = data.pos;
+            players[socket.id].rotY = data.rotY;
+            players[socket.id].anim = data.anim;
+            socket.broadcast.emit("player-moved", players[socket.id]);
+        }
+    });
+
+    // ระบบดาเมจ
+    socket.on("take-damage", (data) => {
+        if (players[data.targetId]) {
+            players[data.targetId].hp -= data.damage;
+            if (players[data.targetId].hp <= 0) players[data.targetId].hp = 0;
+            io.emit("health-update", { id: data.targetId, hp: players[data.targetId].hp });
+        }
+    });
+
+    // เมื่อผู้เล่นออก
+    socket.on("disconnect", () => {
+        delete players[socket.id];
+        io.emit("player-left", socket.id);
+    });
+});
+
+// 3. เริ่มรัน Server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+});
     // 2. รับข้อมูลการเคลื่อนที่ (ส่งจากเครื่องผู้เล่น) และกระจายต่อ
     socket.on("move", (data) => {
         if (players[socket.id]) {
