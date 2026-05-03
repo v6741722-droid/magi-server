@@ -1,28 +1,40 @@
 const http = require("http");
 const socketIo = require("socket.io");
 
-let players = {}; // ประกาศไว้บนสุด
+let players = {}; // เก็บข้อมูลผู้เล่นไว้บนสุด
 
+// 1. สร้าง Server สำหรับแสดงหน้าเว็บ Dashboard
 const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     
+    // สร้างแถวรายชื่อผู้เล่น
     let rows = Object.values(players).map(p => `
-        <tr style="border-bottom: 1px solid #eee;">
+        <tr style="border-bottom: 1px solid #334155;">
             <td style="padding: 12px;">🟢 Online</td>
-            <td style="padding: 12px; font-weight: bold;">${p.name}</td>
-            <td style="padding: 12px;">${p.hp}%</td>
+            <td style="padding: 12px; font-weight: bold;">${p.name || 'Mage'}</td>
+            <td style="padding: 12px;">${p.hp || 100}%</td>
         </tr>
     `).join("");
 
     const html = `
+        <!DOCTYPE html>
         <html>
-        <body style="font-family: sans-serif; background: #0f172a; color: white; padding: 20px;">
-            <div style="max-width: 600px; margin: auto; background: #1e293b; padding: 20px; border-radius: 15px;">
-                <h1 style="text-align:center; color:#f43f5e;">🪄 MAGI DASHBOARD</h1>
-                <p>Mages Online: ${Object.keys(players).length}</p>
-                <table style="width:100%; text-align:left;">
-                    <thead><tr><th>Status</th><th>Name</th><th>HP</th></tr></thead>
-                    <tbody>${rows || '<tr><td colspan="3">No one online</td></tr>'}</tbody>
+        <head>
+            <title>MAGI | SERVER STATUS</title>
+            <style>
+                body { font-family: sans-serif; background: #0f172a; color: white; padding: 20px; }
+                .container { max-width: 600px; margin: auto; background: #1e293b; padding: 20px; border-radius: 15px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                th { text-align: left; background: #334155; padding: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1 style="color: #f43f5e; text-align: center;">🪄 MAGI DASHBOARD</h1>
+                <p>จอมเวทย์ออนไลน์: ${Object.keys(players).length}</p>
+                <table>
+                    <thead><tr><th>สถานะ</th><th>ชื่อ</th><th>HP</th></tr></thead>
+                    <tbody>${rows || '<tr><td colspan="3" style="text-align:center; padding:20px;">ไม่มีคนออนไลน์</td></tr>'}</tbody>
                 </table>
             </div>
             <script>setTimeout(() => location.reload(), 5000);</script>
@@ -32,8 +44,40 @@ const server = http.createServer((req, res) => {
     res.end(html);
 });
 
-const io = socketIo(server, { cors: { origin: "*" } });
+// 2. ตั้งค่า Socket.io สำหรับรับส่งข้อมูลเกม
+const io = socketIo(server, {
+    cors: { origin: "*" }
+});
 
+io.on("connection", (socket) => {
+    socket.on("join-game", (data) => {
+        players[socket.id] = {
+            id: socket.id,
+            name: data.name || "Mage",
+            pos: data.pos || { x: 0, y: 15, z: 0 },
+            hp: 100
+        };
+        socket.emit("current-players", players);
+        socket.broadcast.emit("player-joined", players[socket.id]);
+    });
+
+    socket.on("move", (data) => {
+        if (players[socket.id]) {
+            players[socket.id].pos = data.pos;
+            socket.broadcast.emit("player-moved", { id: socket.id, pos: data.pos });
+        }
+    });
+
+    socket.on("disconnect", () => {
+        delete players[socket.id];
+        io.emit("player-left", socket.id);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log("🚀 MAGI Server is Live!");
+});
 io.on("connection", (socket) => {
     socket.on("join-game", (data) => {
         players[socket.id] = {
