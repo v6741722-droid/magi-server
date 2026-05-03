@@ -1,13 +1,11 @@
 const http = require("http");
 const socketIo = require("socket.io");
 
-// เก็บข้อมูลผู้เล่นไว้บนสุดเพื่อให้ทุกฟังก์ชันเข้าถึงได้
 let players = {}; 
 
 const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     
-    // สร้างตารางรายชื่อผู้เล่นแบบ Real-time
     let rows = Object.values(players).map(p => `
         <tr style="border-bottom: 1px solid #334155;">
             <td style="padding: 12px;">🟢 Online</td>
@@ -50,7 +48,6 @@ const server = http.createServer((req, res) => {
     res.end(html);
 });
 
-// ตั้งค่า Socket.io สำหรับรับส่งข้อมูลเกม
 const io = socketIo(server, {
     cors: { origin: "*" }
 });
@@ -80,7 +77,8 @@ io.on("connection", (socket) => {
     });
 });
 
+// --- ส่วนที่นายเผลอลบไป ต้องมี 3 บรรทัดนี้ด้านล่างสุดเสมอ! ---
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log("🚀 MAGI Server is Live!");
+    console.log("🚀 MAGI Server is Live & Healthy!");
 });
